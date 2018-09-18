@@ -16,6 +16,7 @@ backup
 conf
 dist
 ios
+.vscode
 
 
 # My configurations:
