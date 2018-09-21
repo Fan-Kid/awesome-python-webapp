@@ -5,11 +5,11 @@ import aiomysql
 def log(sql, args=()):
     logging.info('SQL:%s' % sql)
 
-
-async def create_pool(loop, **kw):
+@asyncio.coroutine
+def create_pool(loop, **kw):
     logging.info('create database connection pool...')
     global __pool
-    __pool = await aiomysql.create_pool(
+    __pool = yield from aiomysql.create_pool(
         host = kw.get('host', 'localhost'),
         port = kw.get('port', 3306),
         user = kw['user'],
@@ -29,33 +29,37 @@ async def destory_pool():
         __pool.close()
         await __pool.wait_closed()
 
-async def select(sql, args, size = None):
+@asyncio.coroutine
+def select(sql, args, size = None):
     log(sql, args)
     global __pool
-    async with __pool.acquire() as conn:
-        async with conn.cursor(aiomysql.DictCursor) as cur:
-            await cur.execute(sql.replace('?', '%s'), args or ())
-            if size:
-                rs = await cur.fetchmany(size)
-            else:
-                rs = await cur.fetchall()
+    with(yield from __pool) as conn:
+        cur = yield from conn.cursor(aiomysql.DictCursor)
+        yield from cur.execute(sql.replace('?', '%s'), args or ())
+        if size:
+            rs = yield from cur.fetchmany(size)
+        else:
+            rs = yield from cur.fetchall()
+        yield from cur.close()
         logging.info('rows returned:%s' % len(rs))
         return rs
 
-async def execute(sql, args, autocommit=True):
+@asyncio.coroutine
+def execute(sql, args, autocommit=True):
     log(sql)
-    async with __pool.acquire() as conn:
+    with (yield from __pool) as conn:
         if not autocommit : 
-            await conn.begin()
+            yield from conn.begin()
         try:
-            async with conn.cursor(aiomysql.DictCursor) as cur:
-                await cur.execute(sql.replace('?', '%s'), args)
-                affected = cur.rowcount
+            cur = conn.cursor()
+            yield from cur.execute(sql.replace('?', '%s'), args)
+            affected = cur.rowcount
+            yield from cur.close()
             if not autocommit:
-                await conn.commit()
+                yield from conn.commit()
         except BaseException as e:
             if not autocommit:
-                await conn.rollback()
+                yield from conn.rollback()
             raise
         return affected
 
@@ -156,7 +160,8 @@ class Model(dict, metaclass = ModelMetaclass):
         return value
 
     @classmethod
-    async def findAll(cls, where=None, args = None, **kw):
+    @asyncio.coroutine
+    def findAll(cls, where=None, args = None, **kw):
         ' find object by where clause'
         sql = [cls.__select__]
         if where:
@@ -166,7 +171,7 @@ class Model(dict, metaclass = ModelMetaclass):
             args=[]
         orderBy = kw.get('orderBy',None)
         if orderBy:
-            sql.append('orderBy')
+            sql.append('order by')
             sql.append(orderBy)
         limit = kw.get('limit', None)
         if limit is not None:
@@ -175,12 +180,13 @@ class Model(dict, metaclass = ModelMetaclass):
                 sql.append('?')
                 args.append(limit)
             elif isinstance(limit, tuple) and len(limit) == 2:
-                sql.append('?,?')
+                sql.append('?, ?')
                 args.extend(limit)
             else:
                 raise ValueError('Invalid limit value: %s' % str(limit))
-        rs = await select(' '.join(sql), args)
+        rs = yield from select(' '.join(sql), args)
         return [cls(**r) for r in rs]
+
     @classmethod
     async def findNumber(cls, selectField, where=None, args=None):
         ' find number by select and where'
