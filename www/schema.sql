@@ -12,7 +12,7 @@ create table users(
     `passwd` varchar(50) not null,
     `admin` bool not null,
     `name` varchar(50) not null,
-    `image` varchar(50) not null,
+    `image` varchar(500) not null,
     `created_at` real not null,
     unique key `idx_email` (`email`),
     key `idx_created_at` (`created_at`),
